@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"net/http"
 	"os"
 
 	"github.com/docker/go-plugins-helpers/secrets"
@@ -29,6 +30,12 @@ type SecretsConfig struct {
 	ClientCert string
 	ClientKey  string
 	SkipVerify bool
+	// CABundle is a raw PEM-encoded CA certificate bundle (alternative to CACert file path)
+	CABundle string
+	// JWTToken is the raw JWT used for jwt/oidc authentication
+	JWTToken string
+	// OIDCRole is the Vault role to authenticate against when using jwt/oidc auth method
+	OIDCRole string
 }
 
 // Initialize sets up the Vault provider with the given configuration
@@ -44,14 +51,32 @@ func (v *VaultProvider) Initialize(config map[string]string) error {
 		ClientCert: config["VAULT_CLIENT_CERT"],
 		ClientKey:  config["VAULT_CLIENT_KEY"],
 		SkipVerify: getConfigOrDefault(config, "VAULT_SKIP_VERIFY", "false") == "true",
+		CABundle:   config["VAULT_CA_BUNDLE"],
+		JWTToken:   config["VAULT_JWT_TOKEN"],
+		OIDCRole:   config["VAULT_OIDC_ROLE"],
 	}
 
 	// Configure Vault client
 	SecretsConfig := api.DefaultConfig()
 	SecretsConfig.Address = v.config.Address
 
-	// Configure TLS if certificates are provided or verification is skipped
-	if v.config.CACert != "" || v.config.ClientCert != "" || v.config.SkipVerify {
+	// If a raw CABundle is provided, parse it and inject into the HTTP client transport.
+	// This allows passing PEM content directly rather than a file path.
+	if v.config.CABundle != "" {
+		tlsCfg, err := BuildTLSConfig(TLSConfig{
+			CABundle:   v.config.CABundle,
+			ClientCert: v.config.ClientCert,
+			ClientKey:  v.config.ClientKey,
+			Insecure:   v.config.SkipVerify,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to configure TLS from VAULT_CA_BUNDLE: %w", err)
+		}
+		SecretsConfig.HttpClient = &http.Client{
+			Transport: &http.Transport{TLSClientConfig: tlsCfg},
+		}
+	} else if v.config.CACert != "" || v.config.ClientCert != "" || v.config.SkipVerify {
+		// Fall back to file-based TLS config (existing behaviour)
 		tlsConfig := &api.TLSConfig{
 			CACert:     v.config.CACert,
 			ClientCert: v.config.ClientCert,
@@ -182,6 +207,35 @@ func (v *VaultProvider) authenticate() error {
 		}
 
 		v.client.SetToken(resp.Auth.ClientToken)
+
+	case "jwt", "oidc":
+		// JWT/OIDC authentication
+		// https://developer.hashicorp.com/vault/docs/auth/jwt
+		if v.config.JWTToken == "" {
+			return fmt.Errorf("VAULT_JWT_TOKEN is required for %s authentication", v.config.AuthMethod)
+		}
+		if v.config.OIDCRole == "" {
+			return fmt.Errorf("VAULT_OIDC_ROLE is required for %s authentication", v.config.AuthMethod)
+		}
+
+		data := map[string]interface{}{
+			"jwt":  v.config.JWTToken,
+			"role": v.config.OIDCRole,
+		}
+
+		loginPath := fmt.Sprintf("auth/%s/login", v.config.AuthMethod)
+		resp, err := v.client.Logical().Write(loginPath, data)
+		if err != nil {
+			return fmt.Errorf("%s authentication failed: %v", v.config.AuthMethod, err)
+		}
+
+		if resp == nil || resp.Auth == nil {
+			return fmt.Errorf("no auth info returned from %s login", v.config.AuthMethod)
+		}
+
+		v.client.SetToken(resp.Auth.ClientToken)
+		log.Printf("Successfully authenticated with Vault using %s method (role: %s)",
+			v.config.AuthMethod, v.config.OIDCRole)
 
 	default:
 		return fmt.Errorf("unsupported authentication method: %s", v.config.AuthMethod)

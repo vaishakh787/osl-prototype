@@ -18,6 +18,12 @@ func CreateProvider(providerType string) (SecretsProvider, error) {
 		return &AzureProvider{}, nil
 	case "openbao":
 		return &OpenBaoProvider{}, nil
+	case "1password", "onepassword", "op":
+		return &OnePasswordProvider{}, nil
+	case "doppler":
+		return &DopplerProvider{}, nil
+	case "infisical":
+		return &InfisicalProvider{}, nil
 	default:
 		return nil, fmt.Errorf("unsupported provider type: %s", providerType)
 	}
@@ -31,6 +37,9 @@ func GetSupportedProviders() []string {
 		"gcp",
 		"azure",
 		"openbao",
+		"1password",
+		"doppler",
+		"infisical",
 	}
 }
 
@@ -42,8 +51,8 @@ func GetProviderInfo(providerType string) (map[string]string, error) {
 	case "vault", "hashicorp-vault":
 		info["name"] = "HashiCorp Vault"
 		info["description"] = "HashiCorp Vault secrets engine"
-		info["auth_methods"] = "token, approle"
-		info["env_vars"] = "VAULT_ADDR, VAULT_TOKEN, VAULT_MOUNT_PATH, VAULT_AUTH_METHOD, VAULT_ROLE_ID, VAULT_SECRET_ID"
+		info["auth_methods"] = "token, approle, jwt, oidc"
+		info["env_vars"] = "VAULT_ADDR, VAULT_TOKEN, VAULT_MOUNT_PATH, VAULT_AUTH_METHOD, VAULT_ROLE_ID, VAULT_SECRET_ID, VAULT_CA_BUNDLE, VAULT_JWT_TOKEN, VAULT_OIDC_ROLE"
 
 	case "aws", "aws-secrets-manager":
 		info["name"] = "AWS Secrets Manager"
@@ -66,8 +75,26 @@ func GetProviderInfo(providerType string) (map[string]string, error) {
 	case "openbao":
 		info["name"] = "OpenBao"
 		info["description"] = "OpenBao secrets engine (Vault-compatible)"
-		info["auth_methods"] = "token, approle"
-		info["env_vars"] = "OPENBAO_ADDR, OPENBAO_TOKEN, OPENBAO_MOUNT_PATH, OPENBAO_AUTH_METHOD, OPENBAO_ROLE_ID, OPENBAO_SECRET_ID"
+		info["auth_methods"] = "token, approle, jwt, oidc"
+		info["env_vars"] = "OPENBAO_ADDR, OPENBAO_TOKEN, OPENBAO_MOUNT_PATH, OPENBAO_AUTH_METHOD, OPENBAO_ROLE_ID, OPENBAO_SECRET_ID, OPENBAO_CA_BUNDLE, OPENBAO_JWT_TOKEN, OPENBAO_OIDC_ROLE"
+
+	case "1password", "onepassword", "op":
+		info["name"] = "1Password Connect"
+		info["description"] = "1Password Secrets Automation via Connect Server"
+		info["auth_methods"] = "Connect API token"
+		info["env_vars"] = "OP_CONNECT_HOST, OP_CONNECT_TOKEN, OP_VAULT, OP_CA_BUNDLE, OP_CLIENT_CERT, OP_CLIENT_KEY, OP_SKIP_VERIFY"
+
+	case "doppler":
+		info["name"] = "Doppler"
+		info["description"] = "Doppler secrets manager"
+		info["auth_methods"] = "Service token (HTTP Basic Auth)"
+		info["env_vars"] = "DOPPLER_TOKEN, DOPPLER_PROJECT, DOPPLER_CONFIG, DOPPLER_API_HOST, DOPPLER_CA_BUNDLE, DOPPLER_SKIP_VERIFY"
+
+	case "infisical":
+		info["name"] = "Infisical"
+		info["description"] = "Infisical open-source secrets manager"
+		info["auth_methods"] = "Universal Auth (Machine Identity)"
+		info["env_vars"] = "INFISICAL_HOST, INFISICAL_CLIENT_ID, INFISICAL_CLIENT_SECRET, INFISICAL_PROJECT_ID, INFISICAL_ENVIRONMENT, INFISICAL_SECRET_PATH, INFISICAL_CA_BUNDLE, INFISICAL_SKIP_VERIFY"
 
 	default:
 		return nil, fmt.Errorf("unsupported provider type: %s", providerType)

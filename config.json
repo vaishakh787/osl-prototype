@@ -29,7 +29,7 @@
     },
     {
       "name": "VAULT_AUTH_METHOD",
-      "description": "Vault authentication method",
+      "description": "Vault authentication method (token, approle, jwt, oidc)",
       "settable": ["value"]
     },
     {
@@ -63,8 +63,28 @@
       "settable": ["value"]
     },
     {
+      "name": "VAULT_SKIP_VERIFY",
+      "description": "Skip TLS certificate verification for Vault (true/false)",
+      "settable": ["value"]
+    },
+    {
+      "name": "VAULT_CA_BUNDLE",
+      "description": "Raw PEM-encoded CA bundle for Vault TLS verification",
+      "settable": ["value"]
+    },
+    {
+      "name": "VAULT_JWT_TOKEN",
+      "description": "JWT token for Vault JWT/OIDC authentication",
+      "settable": ["value"]
+    },
+    {
+      "name": "VAULT_OIDC_ROLE",
+      "description": "Vault role name for JWT/OIDC authentication",
+      "settable": ["value"]
+    },
+    {
       "name": "SECRETS_PROVIDER",
-      "description": "Secrets provider type (e.g., vault, openbao)",
+      "description": "Secrets provider type (vault, openbao, aws, gcp, azure, 1password, doppler, infisical)",
       "settable": ["value"]
     },
     {
@@ -74,7 +94,7 @@
     },
     {
       "name": "OPENBAO_AUTH_METHOD",
-      "description": "OpenBao authentication method",
+      "description": "OpenBao authentication method (token, approle, jwt, oidc)",
       "settable": ["value"]
     },
     {
@@ -88,11 +108,6 @@
       "settable": ["value"]
     },
     {
-      "name": "OPENBAO_AUTH_METHOD",
-      "description": "OpenBao authentication method",
-      "settable": ["value"]
-    },
-    {
       "name": "OPENBAO_TOKEN",
       "description": "OpenBao authentication token",
       "settable": ["value"]
@@ -103,13 +118,33 @@
       "settable": ["value"]
     },
     {
+      "name": "OPENBAO_SKIP_VERIFY",
+      "description": "Skip TLS certificate verification for OpenBao (true/false)",
+      "settable": ["value"]
+    },
+    {
+      "name": "OPENBAO_CA_BUNDLE",
+      "description": "Raw PEM-encoded CA bundle for OpenBao TLS verification",
+      "settable": ["value"]
+    },
+    {
+      "name": "OPENBAO_JWT_TOKEN",
+      "description": "JWT token for OpenBao JWT/OIDC authentication",
+      "settable": ["value"]
+    },
+    {
+      "name": "OPENBAO_OIDC_ROLE",
+      "description": "OpenBao role name for JWT/OIDC authentication",
+      "settable": ["value"]
+    },
+    {
       "name": "ENABLE_ROTATION",
-      "description": "Enable OpenBao secret rotation (true/false)",
+      "description": "Enable secret rotation (true/false)",
       "settable": ["value"]
     },
     {
       "name": "ROTATION_INTERVAL",
-      "description": "OpenBao secret rotation check interval (e.g., 5m, 1h)",
+      "description": "Secret rotation check interval (e.g., 5m, 1h)",
       "settable": ["value"]
     },
     {
@@ -153,22 +188,22 @@
       "settable": ["value"]
     },
     {
-      "name" : "AZURE_ACCESS_TOKEN",
+      "name": "AZURE_ACCESS_TOKEN",
       "description": "Azure access token for Key Vault",
       "settable": ["value"]
     },
     {
-      "name" : "GCP_PROJECT_ID",
+      "name": "GCP_PROJECT_ID",
       "description": "GCP project ID",
       "settable": ["value"]
     },
     {
-      "name" : "GOOGLE_APPLICATION_CREDENTIALS",
+      "name": "GOOGLE_APPLICATION_CREDENTIALS",
       "description": "Google application credentials required for GCP Secrets manager",
       "settable": ["value"]
     },
     {
-      "name" : "GCP_CREDENTIALS_JSON",
+      "name": "GCP_CREDENTIALS_JSON",
       "description": "Google credentials json required for GCP Secrets manager",
       "settable": ["value"]
     },
@@ -193,13 +228,108 @@
       "settable": ["value"]
     },
     {
-      "name": "VAULT_SKIP_VERIFY",
-      "description": "Skip TLS certificate verification for Vault (true/false)",
+      "name": "OP_CONNECT_HOST",
+      "description": "1Password Connect server URL (e.g. https://my-connect-server:8080)",
       "settable": ["value"]
     },
     {
-      "name": "OPENBAO_SKIP_VERIFY",
-      "description": "Skip TLS certificate verification for OpenBao (true/false)",
+      "name": "OP_CONNECT_TOKEN",
+      "description": "1Password Connect API token",
+      "settable": ["value"]
+    },
+    {
+      "name": "OP_VAULT",
+      "description": "Default 1Password vault name or UUID",
+      "settable": ["value"]
+    },
+    {
+      "name": "OP_CA_BUNDLE",
+      "description": "Raw PEM-encoded CA bundle for 1Password Connect TLS",
+      "settable": ["value"]
+    },
+    {
+      "name": "OP_CLIENT_CERT",
+      "description": "PEM-encoded client certificate for 1Password Connect mTLS",
+      "settable": ["value"]
+    },
+    {
+      "name": "OP_CLIENT_KEY",
+      "description": "PEM-encoded client key for 1Password Connect mTLS",
+      "settable": ["value"]
+    },
+    {
+      "name": "OP_SKIP_VERIFY",
+      "description": "Skip TLS verification for 1Password Connect (true/false)",
+      "settable": ["value"]
+    },
+    {
+      "name": "DOPPLER_TOKEN",
+      "description": "Doppler Service Token",
+      "settable": ["value"]
+    },
+    {
+      "name": "DOPPLER_PROJECT",
+      "description": "Doppler project name",
+      "settable": ["value"]
+    },
+    {
+      "name": "DOPPLER_CONFIG",
+      "description": "Doppler config/environment name (e.g. prd, dev)",
+      "settable": ["value"]
+    },
+    {
+      "name": "DOPPLER_API_HOST",
+      "description": "Doppler API base URL (default: https://api.doppler.com)",
+      "settable": ["value"]
+    },
+    {
+      "name": "DOPPLER_CA_BUNDLE",
+      "description": "Raw PEM-encoded CA bundle for Doppler TLS",
+      "settable": ["value"]
+    },
+    {
+      "name": "DOPPLER_SKIP_VERIFY",
+      "description": "Skip TLS verification for Doppler (true/false)",
+      "settable": ["value"]
+    },
+    {
+      "name": "INFISICAL_HOST",
+      "description": "Infisical server URL (default: https://app.infisical.com)",
+      "settable": ["value"]
+    },
+    {
+      "name": "INFISICAL_CLIENT_ID",
+      "description": "Infisical Machine Identity client ID",
+      "settable": ["value"]
+    },
+    {
+      "name": "INFISICAL_CLIENT_SECRET",
+      "description": "Infisical Machine Identity client secret",
+      "settable": ["value"]
+    },
+    {
+      "name": "INFISICAL_PROJECT_ID",
+      "description": "Infisical project (workspace) ID",
+      "settable": ["value"]
+    },
+    {
+      "name": "INFISICAL_ENVIRONMENT",
+      "description": "Infisical environment slug (e.g. prod, dev)",
+      "settable": ["value"]
+    },
+    {
+      "name": "INFISICAL_SECRET_PATH",
+      "description": "Infisical folder path within the environment (default: /)",
+      "settable": ["value"]
+    },
+    {
+      "name": "INFISICAL_CA_BUNDLE",
+      "description": "Raw PEM-encoded CA bundle for Infisical TLS",
+      "settable": ["value"]
+    },
+    {
+      "name": "INFISICAL_SKIP_VERIFY",
+      "description": "Skip TLS verification for Infisical (true/false)",
       "settable": ["value"]
     }
   ]
