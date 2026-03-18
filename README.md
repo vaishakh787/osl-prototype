@@ -19,9 +19,9 @@ Three new secret backends have been added alongside the existing five
 
 | Provider | Status | Auth Method | Rotation |
 |---|---|---|---|
-| 1Password Connect | ✅ Full implementation | Connect API Token | ✅ |
-| Doppler | 🔧 Stub (interface complete) | Service Token | ❌ |
-| Infisical | 🔧 Stub (interface complete) | Universal Auth | ❌ |
+| 1Password Connect |  Full implementation | Connect API Token | Yes |
+| Doppler | Stub (interface complete) | Service Token | No |
+| Infisical | Stub (interface complete) | Universal Auth | No |
 
 All three satisfy the `SecretsProvider` interface and are registered in
 the provider factory. The full GSoC project would complete rotation
