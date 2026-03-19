@@ -337,3 +337,52 @@ func (i *InfisicalProvider) doGetRequest(ctx context.Context, url string) ([]byt
 
 	return body, resp.StatusCode, nil
 }
+
+// GetSecretVersion retrieves a specific version of an Infisical secret.
+// Infisical supports secret versioning — pass version as "1", "2", etc.
+// or "" / "latest" for the current version.
+func (i *InfisicalProvider) GetSecretVersion(ctx context.Context, req secrets.Request, version string) ([]byte, error) {
+	if version == "" || version == "latest" {
+		return i.GetSecret(ctx, req)
+	}
+
+	projectID := req.SecretLabels["infisical_project"]
+	if projectID == "" {
+		projectID = i.config.ProjectID
+	}
+	environment := req.SecretLabels["infisical_environment"]
+	if environment == "" {
+		environment = i.config.Environment
+	}
+	secretPath := req.SecretLabels["infisical_path"]
+	if secretPath == "" {
+		secretPath = i.config.SecretPath
+	}
+	secretKey := req.SecretLabels["infisical_key"]
+	if secretKey == "" {
+		secretKey = req.SecretName
+	}
+
+	log.Infof("Fetching Infisical secret '%s' version '%s'", secretKey, version)
+
+	url := fmt.Sprintf("%s/api/v3/secrets/raw/%s?workspaceId=%s&environment=%s&secretPath=%s&version=%s",
+		i.config.Host, secretKey, projectID, environment, secretPath, version)
+
+	body, err := i.doGet(ctx, url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch Infisical secret version %s: %w", version, err)
+	}
+
+	var result struct {
+		Secret infisicalSecret `json:"secret"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse Infisical response: %w", err)
+	}
+
+	if result.Secret.SecretValue == "" {
+		return nil, fmt.Errorf("Infisical secret '%s' version '%s' has no value", secretKey, version)
+	}
+
+	return []byte(result.Secret.SecretValue), nil
+}

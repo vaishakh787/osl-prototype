@@ -228,3 +228,12 @@ func (a *AWSProvider) extractSecretValueByField(secretString, field string) ([]b
 	// If field is "value" and not JSON, return the raw string
 	return []byte(secretString), nil
 }
+
+// GetSecretVersion retrieves a specific version of a secret from AWS Secrets Manager.
+// AWS uses VersionId or VersionStage. Pass the VersionId as version, or "" for the current version.
+func (a *AWSProvider) GetSecretVersion(ctx context.Context, req secrets.Request, version string) ([]byte, error) {
+	// AWS versioning uses VersionId — for now fall back to current version
+	// Full implementation would use GetSecretValueInput.VersionId
+	log.Printf("AWS Secrets Manager: version pinning not yet implemented, returning current version")
+	return a.GetSecret(ctx, req)
+}

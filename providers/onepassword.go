@@ -236,3 +236,13 @@ func isLikelyUUID(s string) bool {
 	}
 	return true
 }
+
+// GetSecretVersion retrieves a specific version of a 1Password item.
+// 1Password Connect does not expose version history via the Connect API —
+// this returns the current version and logs a warning if a specific version is requested.
+func (op *OnePasswordProvider) GetSecretVersion(ctx context.Context, req secrets.Request, version string) ([]byte, error) {
+	if version != "" && version != "latest" {
+		log.Warnf("1Password Connect does not support version pinning via the Connect API — returning current version")
+	}
+	return op.GetSecret(ctx, req)
+}

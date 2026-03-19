@@ -237,3 +237,25 @@ func computeHash(data []byte) string {
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:])
 }
+
+// GetSecretVersion retrieves a specific version of a secret from GCP Secret Manager.
+// Pass version as "1", "2", etc. or "latest" for the current version.
+func (g *GCPProvider) GetSecretVersion(ctx context.Context, req secrets.Request, version string) ([]byte, error) {
+	secretName := g.buildSecretName(req)
+
+	if version == "" {
+		version = "latest"
+	}
+
+	versionedName := fmt.Sprintf("%s/versions/%s", secretName, version)
+	log.Printf("Reading secret version '%s' from GCP Secret Manager: %s", version, versionedName)
+
+	result, err := g.client.AccessSecretVersion(ctx, &secretmanagerpb.AccessSecretVersionRequest{
+		Name: versionedName,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to access secret version %s: %w", version, err)
+	}
+
+	return g.extractSecretValue(string(result.Payload.Data), req)
+}

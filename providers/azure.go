@@ -205,3 +205,20 @@ func (az *AzureProvider) extractSecretValueByField(secretValue, field string) ([
 
 	return nil, fmt.Errorf("field '%s' not found in the JSON secret", field)
 }
+
+// GetSecretVersion retrieves a specific version of a secret from Azure Key Vault.
+// Pass the version string (Azure secret version ID) or "" for the latest version.
+func (az *AzureProvider) GetSecretVersion(ctx context.Context, req secrets.Request, version string) ([]byte, error) {
+	secretName := az.buildSecretName(req)
+	log.Infof("Reading secret version '%s' from Azure Key Vault: %s", version, secretName)
+
+	resp, err := az.client.GetSecret(ctx, secretName, version, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get secret version '%s' from Azure Key Vault: %w", version, err)
+	}
+	if resp.Value == nil {
+		return nil, fmt.Errorf("secret version '%s' has no value", version)
+	}
+
+	return az.extractSecretValue(*resp.Value, req)
+}

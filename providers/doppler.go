@@ -224,3 +224,13 @@ func (d *DopplerProvider) doGet(ctx context.Context, url string) ([]byte, error)
 
 	return body, nil
 }
+
+// GetSecretVersion retrieves a specific version of a Doppler secret.
+// Doppler does not expose historical secret versions via the API —
+// this returns the current version and logs a warning if a specific version is requested.
+func (d *DopplerProvider) GetSecretVersion(ctx context.Context, req secrets.Request, version string) ([]byte, error) {
+	if version != "" && version != "latest" {
+		log.Warnf("Doppler does not support secret version pinning — returning current version")
+	}
+	return d.GetSecret(ctx, req)
+}

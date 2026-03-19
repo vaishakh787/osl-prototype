@@ -318,3 +318,29 @@ func getConfigOrDefault(config map[string]string, key, defaultValue string) stri
 	}
 	return defaultValue
 }
+
+// GetSecretVersion retrieves a specific version of a secret from Vault KV v2.
+// Pass version as a string integer e.g. "1", "2". Pass "latest" or "" for the current version.
+func (v *VaultProvider) GetSecretVersion(ctx context.Context, req secrets.Request, version string) ([]byte, error) {
+	secretPath := v.buildSecretPath(req)
+
+	var versionedPath string
+	if version == "" || version == "latest" {
+		versionedPath = secretPath
+	} else {
+		// Vault KV v2: append ?version=N to the path
+		versionedPath = fmt.Sprintf("%s?version=%s", secretPath, version)
+	}
+
+	log.Printf("Reading secret version '%s' from Vault path: %s", version, versionedPath)
+
+	secret, err := v.client.Logical().ReadWithContext(ctx, versionedPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read secret version %s from vault: %v", version, err)
+	}
+	if secret == nil {
+		return nil, fmt.Errorf("secret version %s not found at path: %s", version, secretPath)
+	}
+
+	return v.extractSecretValue(secret, req)
+}

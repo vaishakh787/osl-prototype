@@ -307,3 +307,27 @@ func (o *OpenBaoProvider) extractSecretValue(secret *api.Secret, req secrets.Req
 
 	return nil, fmt.Errorf("no suitable secret value found")
 }
+
+// GetSecretVersion retrieves a specific version of a secret from OpenBao KV v2.
+func (o *OpenBaoProvider) GetSecretVersion(ctx context.Context, req secrets.Request, version string) ([]byte, error) {
+	secretPath := o.buildSecretPath(req)
+
+	var versionedPath string
+	if version == "" || version == "latest" {
+		versionedPath = secretPath
+	} else {
+		versionedPath = fmt.Sprintf("%s?version=%s", secretPath, version)
+	}
+
+	log.Printf("Reading secret version '%s' from OpenBao path: %s", version, versionedPath)
+
+	secret, err := o.client.Logical().ReadWithContext(ctx, versionedPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read secret version %s from OpenBao: %v", version, err)
+	}
+	if secret == nil {
+		return nil, fmt.Errorf("secret version %s not found at path: %s", version, secretPath)
+	}
+
+	return o.extractSecretValue(secret, req)
+}
