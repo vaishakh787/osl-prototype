@@ -11,7 +11,8 @@ For contribution details, see [GSoC Contribution Guidelines](./CONTRIBUTING.md#g
 
 ## Architecture
 
-![Architecture](https://raw.githubusercontent.com/sugar-org/swarm-external-secrets/refs/heads/main/docs/architecture.png)
+<img width="552" height="495" alt="image" src="https://github.com/user-attachments/assets/d8a51dec-23ff-461d-aae1-cb3e0ed2db1b" />
+
 
 ## Documentation
 
