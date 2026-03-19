@@ -1,18 +1,18 @@
-# swarm-external-secrets
+# swarm-external-secrets — GSoC 2026 Prototype
+
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/sugar-org/swarm-external-secrets/badge)](https://scorecard.dev/viewer/?uri=github.com/sugar-org/swarm-external-secrets) ![Discord](https://img.shields.io/discord/1476983394977054740?logo=discord&color=blue) [![Join our Discord](https://img.shields.io/badge/Discord-Join%20Server-5865F2?logo=discord&logoColor=white)](https://discord.gg/4NYdBu7bZy)
 
 A Docker Swarm secrets plugin that integrates with multiple secret management providers including HashiCorp Vault, AWS Secrets Manager, GCP Secret Manager, Azure Key Vault, and OpenBao.
 
 ## GSoC 2026 Prototype
 
-This branch (`osl-prototype`) is a prototype implementation for the Google Summer of Code 2026 project idea, "Implement Enterprise Security & Provider Ecosystem Expansion," under [OpenScienceLabs](http://opensciencelabs.org/).
+This branch (`osl-prototype`) is a prototype implementation for the Google Summer of Code 2026 project idea **"Implement Enterprise Security & Provider Ecosystem Expansion"** under [OpenScienceLabs](http://opensciencelabs.org/).
 
 For contribution details, see [GSoC Contribution Guidelines](./CONTRIBUTING.md#google-summer-of-code-2026).
 
 ## Architecture
 
 <img width="552" height="495" alt="image" src="https://github.com/user-attachments/assets/d8a51dec-23ff-461d-aae1-cb3e0ed2db1b" />
-
 
 ## Documentation
 
@@ -27,26 +27,221 @@ Additional local guides:
 
 ## What This Prototype Demonstrates
 
-This prototype extends `swarm-external-secrets` with three major workstreams from the GSoC proposal:
+This prototype extends `swarm-external-secrets` with four major workstreams from the GSoC proposal:
 
 ### 1. New Provider Integrations
 
 Three additional secret backends have been added alongside the existing providers:
 
-| Provider | Status | Auth Method | Rotation |
-|---|---|---|---|
-| 1Password Connect | Full implementation | Connect API Token | Yes |
-| Doppler | Stub (interface complete) | Service Token | No |
-| Infisical | Stub (interface complete) | Universal Auth | No |
+| Provider | Status | Auth Method | Rotation | Token Refresh |
+|---|---|---|---|---|
+| 1Password Connect | Full implementation | Connect API Token | Yes | N/A |
+| Doppler | Full implementation | Service Token (HTTP Basic) | Yes (polling) | N/A |
+| Infisical | Full implementation | Universal Auth (Machine Identity) | Yes (polling) | Yes (auto on 401) |
 
-All three providers satisfy the `SecretsProvider` interface and are registered in the provider factory.
+All three providers fully satisfy the `SecretsProvider` interface and are registered in the provider factory.
 
 ### 2. Security Hardening: JWT/OIDC Authentication
 
 Both HashiCorp Vault and OpenBao now support two additional authentication methods alongside the existing `token` and `approle` flows:
 
-- `jwt` for raw JWT token authentication
-- `oidc` for OpenID Connect authentication
+- `jwt` — raw JWT token authentication
+- `oidc` — OpenID Connect authentication
+
+```bash
+docker plugin set swarm-external-secrets:latest \
+    SECRETS_PROVIDER="vault" \
+    VAULT_AUTH_METHOD="jwt" \
+    VAULT_JWT_TOKEN="your-jwt-token" \
+    VAULT_OIDC_ROLE="your-vault-role"
+```
+
+### 3. Security Hardening: Enhanced TLS/mTLS (CABundle)
+
+A shared TLS helper in `providers/tls.go` enables raw PEM-encoded CA bundle support across all providers, without requiring a mounted file path:
+
+```bash
+docker plugin set swarm-external-secrets:latest \
+    VAULT_CA_BUNDLE="$(cat /path/to/ca-bundle.pem)"
+```
+
+CABundle and mTLS support is available for Vault, OpenBao, 1Password, Doppler, and Infisical.
+
+### 4. Secret Versioning
+
+The `SecretsProvider` interface has been extended with `GetSecretVersion` to support version-pinned secret retrieval:
+
+```go
+GetSecretVersion(ctx context.Context, req secrets.Request, version string) ([]byte, error)
+```
+
+Implemented across all 8 providers. Vault and Infisical support true version pinning. Providers without native versioning return the current value with a log warning, maintaining interface compatibility.
+
+### 5. PushSecret (Bidirectional Sync)
+
+A `PushSecret` skeleton has been implemented for Vault, demonstrating the bidirectional sync pattern — writing secrets from Docker Swarm back to the external provider:
+
+```go
+PushSecret(ctx context.Context, name string, value []byte, labels map[string]string) error
+```
+
+## Supported Providers
+
+| Provider | Status | Authentication | Rotation |
+|---|---|---|---|
+| HashiCorp Vault | Stable | Token, AppRole, JWT, OIDC | Yes |
+| AWS Secrets Manager | Stable | IAM, Access Keys, Profiles | Yes |
+| GCP Secret Manager | Stable | Service Account, ADC | Yes |
+| Azure Key Vault | Stable | Service Principal, Managed Identity | Yes |
+| OpenBao | Stable | Token, AppRole, JWT, OIDC | Yes |
+| 1Password Connect | Prototype | Connect API Token | Yes |
+| Doppler | Prototype | Service Token | Yes |
+| Infisical | Prototype | Universal Auth + token refresh | Yes |
+
+## Multi-Provider Configuration
+
+Select the provider with `SECRETS_PROVIDER`:
+
+```bash
+docker plugin set swarm-external-secrets:latest SECRETS_PROVIDER="vault"
+docker plugin set swarm-external-secrets:latest SECRETS_PROVIDER="aws"
+docker plugin set swarm-external-secrets:latest SECRETS_PROVIDER="gcp"
+docker plugin set swarm-external-secrets:latest SECRETS_PROVIDER="azure"
+docker plugin set swarm-external-secrets:latest SECRETS_PROVIDER="openbao"
+docker plugin set swarm-external-secrets:latest SECRETS_PROVIDER="1password"
+docker plugin set swarm-external-secrets:latest SECRETS_PROVIDER="doppler"
+docker plugin set swarm-external-secrets:latest SECRETS_PROVIDER="infisical"
+```
+
+For multi-instance usage, see [`docs/multi-provider.md`](./docs/multi-provider.md).
+
+## Provider Examples
+
+### 1Password Connect
+
+```bash
+docker plugin set swarm-external-secrets:latest \
+    SECRETS_PROVIDER="1password" \
+    OP_CONNECT_HOST="https://my-connect-server:8080" \
+    OP_CONNECT_TOKEN="your-connect-token" \
+    OP_VAULT="my-vault"
+```
+
+```yaml
+secrets:
+  db_password:
+    driver: swarm-external-secrets:latest
+    labels:
+      op_vault: "my-vault"
+      op_item: "production-database"
+      op_field: "password"
+```
+
+### Doppler
+
+```bash
+docker plugin set swarm-external-secrets:latest \
+    SECRETS_PROVIDER="doppler" \
+    DOPPLER_TOKEN="dp.st.your-service-token" \
+    DOPPLER_PROJECT="myapp" \
+    DOPPLER_CONFIG="prd"
+```
+
+```yaml
+secrets:
+  db_password:
+    driver: swarm-external-secrets:latest
+    labels:
+      doppler_project: "myapp"
+      doppler_config: "prd"
+      doppler_name: "DB_PASSWORD"
+```
+
+### Infisical
+
+```bash
+docker plugin set swarm-external-secrets:latest \
+    SECRETS_PROVIDER="infisical" \
+    INFISICAL_CLIENT_ID="your-client-id" \
+    INFISICAL_CLIENT_SECRET="your-client-secret" \
+    INFISICAL_PROJECT_ID="your-project-id" \
+    INFISICAL_ENVIRONMENT="prod"
+```
+
+```yaml
+secrets:
+  db_password:
+    driver: swarm-external-secrets:latest
+    labels:
+      infisical_project: "your-project-id"
+      infisical_environment: "prod"
+      infisical_key: "DB_PASSWORD"
+```
+
+## Test Status
+
+No external accounts or services are required — all new provider tests use local mock HTTP servers.
+
+```bash
+go test ./providers/ -v
+go test ./providers/ -run TestOnePassword -v
+go test ./providers/ -run TestDoppler -v
+go test ./providers/ -run TestInfisical -v
+```
+
+| Result | Count |
+|---|---|
+| Passed | 41 |
+| Failed | 0 |
+| Skipped | 0 |
+
+## Files Added or Modified
+
+**New files:**
+
+- `providers/tls.go` — shared CABundle/mTLS helper
+- `providers/onepassword.go` + `onepassword_test.go`
+- `providers/doppler.go` + `doppler_test.go`
+- `providers/infisical.go` + `infisical_test.go`
+- `providers/push.go` — PushSecret interface
+- `providers/vault_push.go` — PushSecret implementation for Vault
+- `providers/push_test.go` — PushSecret tests
+- `providers/versioning_test.go` — secret versioning tests
+
+**Modified files:**
+
+- `providers/interface.go` — `GetSecretVersion` added
+- `providers/vault.go` — JWT/OIDC auth + CABundle TLS + versioning
+- `providers/openbao.go` — JWT/OIDC auth + CABundle TLS + versioning
+- `providers/aws.go` — `GetSecretVersion` added
+- `providers/azure.go` — `GetSecretVersion` added
+- `providers/gcp.go` — `GetSecretVersion` added
+- `providers/factory.go` — 3 new providers registered
+- `config.json` — all new env vars added
+- `readme.md` + `docs/multi-provider.md` — updated documentation
+
+## Future GSoC Scope
+
+The full GSoC project would extend this prototype with:
+
+- Smoke tests for all new providers (`scripts/tests/smoke-test-onepassword.sh`, etc.)
+- PushSecret support for AWS, Azure, GCP, OpenBao, Doppler, and Infisical
+- Prometheus metrics and structured audit logging for enterprise observability
+- A generic webhook provider for custom secret system integrations
+- Refactor `driver.go` to remove provider-specific switch blocks via interface extension
+
+## References
+
+- [GSoC Project Idea](https://github.com/sugar-org/swarm-external-secrets/wiki/Project-Ideas)
+- [1Password Connect API](https://developer.1password.com/docs/connect/)
+- [Doppler API](https://docs.doppler.com/reference/api)
+- [Infisical API](https://infisical.com/docs/api-reference/overview/introduction)
+- [Vault JWT/OIDC Auth](https://developer.hashicorp.com/vault/docs/auth/jwt)
+- [External Secrets Operator](https://external-secrets.io/)
+
+## License
+
+[BSD-3-Clause license](https://github.com/sugar-org/swarm-external-secrets/blob/main/LICENSE)- `oidc` for OpenID Connect authentication
 
 ```bash
 docker plugin set swarm-external-secrets:latest \
