@@ -2,7 +2,9 @@ package providers
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -119,3 +121,52 @@ func TestDopplerProvider_Close(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestDopplerProvider_CheckSecretChanged(t *testing.T) {
+	srv := mockDopplerServer(t)
+	defer srv.Close()
+	p := &DopplerProvider{}
+	_ = p.Initialize(map[string]string{
+		"DOPPLER_TOKEN":    "dp.st.test",
+		"DOPPLER_PROJECT":  "myapp",
+		"DOPPLER_CONFIG":   "prd",
+		"DOPPLER_API_HOST": srv.URL,
+	})
+
+	// Same value hash — should not have changed
+	secretInfo := &SecretInfo{
+		SecretPath:  "myapp/prd/DB_PASSWORD",
+		SecretField: "DB_PASSWORD",
+		LastHash:    fmt.Sprintf("%x", sha256.Sum256([]byte("dopplerpass123"))),
+	}
+	changed, err := p.CheckSecretChanged(context.Background(), secretInfo)
+	if err != nil {
+		t.Fatalf("CheckSecretChanged failed: %v", err)
+	}
+	if changed {
+		t.Error("expected secret to be unchanged")
+	}
+
+	// Different hash — should detect change
+	secretInfo.LastHash = fmt.Sprintf("%x", sha256.Sum256([]byte("old-password")))
+	changed, err = p.CheckSecretChanged(context.Background(), secretInfo)
+	if err != nil {
+		t.Fatalf("CheckSecretChanged failed: %v", err)
+	}
+	if !changed {
+		t.Error("expected secret to be changed")
+	}
+}
+
+func TestDopplerProvider_CheckSecretChanged_InvalidPath(t *testing.T) {
+	p := &DopplerProvider{}
+	_ = p.Initialize(map[string]string{
+		"DOPPLER_TOKEN":    "dp.st.test",
+		"DOPPLER_API_HOST": "http://localhost",
+	})
+	_, err := p.CheckSecretChanged(context.Background(), &SecretInfo{SecretPath: "invalid-path"})
+	if err == nil {
+		t.Fatal("expected error for invalid secret path")
+	}
+}
+

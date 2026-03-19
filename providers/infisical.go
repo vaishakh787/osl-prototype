@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/docker/go-plugins-helpers/secrets"
@@ -16,38 +17,30 @@ import (
 
 // InfisicalProvider implements the SecretsProvider interface for Infisical.
 // API reference: https://infisical.com/docs/api-reference/overview/introduction
-//
-// NOTE: This is a prototype stub. The core HTTP client, config,
-// and interface methods are wired up. JWT auth token refresh
-// and full rotation support are marked as TODO.
 type InfisicalProvider struct {
 	client      *http.Client
 	config      *InfisicalConfig
 	accessToken string
+	tokenExpiry time.Time
+	tokenMu     sync.Mutex
 }
 
 // InfisicalConfig holds configuration for the Infisical provider.
 type InfisicalConfig struct {
-	// Host is the Infisical server URL (default: https://app.infisical.com)
-	Host string
-	// ClientID is the Infisical Machine Identity client ID
-	ClientID string
-	// ClientSecret is the Infisical Machine Identity client secret
+	Host         string
+	ClientID     string
 	ClientSecret string
-	// ProjectID is the Infisical project ID (workspace ID)
-	ProjectID string
-	// Environment is the Infisical environment slug (e.g. "prod", "dev")
-	Environment string
-	// SecretPath is the folder path within the environment (default: "/")
-	SecretPath string
-	// TLS holds optional TLS/mTLS configuration
-	TLS TLSConfig
+	ProjectID    string
+	Environment  string
+	SecretPath   string
+	TLS          TLSConfig
 }
 
 // infisicalAuthResponse is the response from POST /api/v1/auth/universal-auth/login
 type infisicalAuthResponse struct {
 	AccessToken string `json:"accessToken"`
 	TokenType   string `json:"tokenType"`
+	ExpiresIn   int    `json:"expiresIn"`
 }
 
 // infisicalSecretsResponse is the response from GET /api/v3/secrets/raw
@@ -86,7 +79,6 @@ func (i *InfisicalProvider) Initialize(config map[string]string) error {
 
 	i.config.Host = strings.TrimRight(i.config.Host, "/")
 
-	// Build HTTP client with optional TLS config
 	transport := &http.Transport{}
 	if i.config.TLS.CABundle != "" || i.config.TLS.ClientCert != "" || i.config.TLS.Insecure {
 		tlsCfg, err := BuildTLSConfig(i.config.TLS)
@@ -101,8 +93,7 @@ func (i *InfisicalProvider) Initialize(config map[string]string) error {
 		Timeout:   30 * time.Second,
 	}
 
-	// Authenticate with Infisical using Universal Auth (Machine Identity)
-	// https://infisical.com/docs/documentation/platform/identities/universal-auth
+	// Authenticate on startup
 	if err := i.authenticate(context.Background()); err != nil {
 		return fmt.Errorf("failed to authenticate with Infisical: %w", err)
 	}
@@ -115,11 +106,10 @@ func (i *InfisicalProvider) Initialize(config map[string]string) error {
 // GetSecret retrieves a secret from Infisical.
 //
 // Labels used:
-//
-//	infisical_project     - project ID (falls back to INFISICAL_PROJECT_ID)
-//	infisical_environment - environment slug (falls back to INFISICAL_ENVIRONMENT)
-//	infisical_path        - folder path (falls back to INFISICAL_SECRET_PATH)
-//	infisical_key         - secret key name (defaults to SecretName uppercased)
+//   infisical_project     - project ID (falls back to INFISICAL_PROJECT_ID)
+//   infisical_environment - environment slug (falls back to INFISICAL_ENVIRONMENT)
+//   infisical_path        - folder path (falls back to INFISICAL_SECRET_PATH)
+//   infisical_key         - secret key name (defaults to SecretName)
 func (i *InfisicalProvider) GetSecret(ctx context.Context, req secrets.Request) ([]byte, error) {
 	projectID := req.SecretLabels["infisical_project"]
 	if projectID == "" {
@@ -169,11 +159,10 @@ func (i *InfisicalProvider) GetSecret(ctx context.Context, req secrets.Request) 
 
 // SupportsRotation indicates that Infisical supports rotation monitoring.
 func (i *InfisicalProvider) SupportsRotation() bool {
-	// TODO: implement rotation polling
-	return false
+	return true
 }
 
-// CheckSecretChanged checks if an Infisical secret has changed.
+// CheckSecretChanged checks if an Infisical secret has changed since last retrieval.
 func (i *InfisicalProvider) CheckSecretChanged(ctx context.Context, secretInfo *SecretInfo) (bool, error) {
 	// SecretPath format: "projectID/environment/path/KEY"
 	parts := strings.SplitN(secretInfo.SecretPath, "/", 4)
@@ -217,7 +206,7 @@ func (i *InfisicalProvider) Close() error {
 }
 
 // authenticate obtains a short-lived access token from Infisical using Universal Auth.
-// TODO: implement token refresh when token expires
+// It stores the token expiry time for automatic refresh.
 func (i *InfisicalProvider) authenticate(ctx context.Context) error {
 	url := fmt.Sprintf("%s/api/v1/auth/universal-auth/login", i.config.Host)
 
@@ -255,39 +244,96 @@ func (i *InfisicalProvider) authenticate(ctx context.Context) error {
 		return fmt.Errorf("Infisical auth response contained no access token")
 	}
 
+	i.tokenMu.Lock()
 	i.accessToken = authResp.AccessToken
-	log.Infof("Successfully authenticated with Infisical")
+	// Refresh 60 seconds before actual expiry to avoid race conditions
+	if authResp.ExpiresIn > 0 {
+		i.tokenExpiry = time.Now().Add(time.Duration(authResp.ExpiresIn-60) * time.Second)
+	} else {
+		// Default: treat token as valid for 1 hour if server does not return expiry
+		i.tokenExpiry = time.Now().Add(1 * time.Hour)
+	}
+	i.tokenMu.Unlock()
+
+	log.Infof("Successfully authenticated with Infisical (token valid until: %s)",
+		i.tokenExpiry.Format(time.RFC3339))
 	return nil
 }
 
+// isTokenExpired checks whether the current access token has expired.
+func (i *InfisicalProvider) isTokenExpired() bool {
+	i.tokenMu.Lock()
+	defer i.tokenMu.Unlock()
+	return time.Now().After(i.tokenExpiry)
+}
+
+// refreshIfExpired re-authenticates with Infisical if the token has expired.
+func (i *InfisicalProvider) refreshIfExpired(ctx context.Context) error {
+	if !i.isTokenExpired() {
+		return nil
+	}
+	log.Infof("Infisical access token expired, refreshing...")
+	return i.authenticate(ctx)
+}
+
 // doGet performs an authenticated GET request to the Infisical API.
+// It automatically refreshes the token if expired, and retries once on 401.
 func (i *InfisicalProvider) doGet(ctx context.Context, url string) ([]byte, error) {
+	// Proactively refresh if token is near expiry
+	if err := i.refreshIfExpired(ctx); err != nil {
+		return nil, fmt.Errorf("failed to refresh Infisical token: %w", err)
+	}
+
+	body, statusCode, err := i.doGetRequest(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+
+	// On 401, attempt one token refresh and retry
+	if statusCode == http.StatusUnauthorized {
+		log.Infof("Infisical returned 401, attempting token refresh and retry...")
+		if err := i.authenticate(ctx); err != nil {
+			return nil, fmt.Errorf("token refresh failed after 401: %w", err)
+		}
+		body, statusCode, err = i.doGetRequest(ctx, url)
+		if err != nil {
+			return nil, err
+		}
+		if statusCode == http.StatusUnauthorized {
+			return nil, fmt.Errorf("Infisical returned 401 after token refresh — check credentials")
+		}
+	}
+
+	if statusCode != http.StatusOK {
+		return nil, fmt.Errorf("Infisical API returned HTTP %d: %s", statusCode, string(body))
+	}
+
+	return body, nil
+}
+
+// doGetRequest executes a single GET request and returns the body and status code.
+func (i *InfisicalProvider) doGetRequest(ctx context.Context, url string) ([]byte, int, error) {
+	i.tokenMu.Lock()
+	token := i.accessToken
+	i.tokenMu.Unlock()
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, 0, fmt.Errorf("failed to create request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+i.accessToken)
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := i.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("HTTP request to Infisical failed: %w", err)
+		return nil, 0, fmt.Errorf("HTTP request to Infisical failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+		return nil, resp.StatusCode, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	if resp.StatusCode == http.StatusUnauthorized {
-		// TODO: attempt token refresh here
-		return nil, fmt.Errorf("Infisical returned 401 Unauthorized — token may have expired")
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Infisical API returned HTTP %d: %s", resp.StatusCode, string(body))
-	}
-
-	return body, nil
+	return body, resp.StatusCode, nil
 }
